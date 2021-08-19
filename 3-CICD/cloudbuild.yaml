@@ -1,4 +1,17 @@
 steps:
+  - id: 'app-source-code'
+    name: 'alpine'
+    waitFor: ['-']
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args: ['cp', '-T', '-r', '.', '/build/source-code']
+
   - name: gcr.io/cloud-builders/gsutil
-    args: ["-m", "rsync", "-p", "-r", "-c", "../wheel-of-misfortune", "gs://wheel-of-misfortune.deliverycenter.com"]
+    waitFor:
+      - 'app-source-code'
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args: ["-m", "rsync", "-p", "-r", "-c", "/build/source-code/wheel-of-misfortune", "gs://wheel-of-misfortune.deliverycenter.com"]
     timeout: "600s"

@@ -15,7 +15,7 @@ steps:
       - name: 'source-code'
         path: '/build/source-code'
     args: [
-      "--dockerfile=../2-Docker/Dockerfile",
+      "--dockerfile=./2-Docker/Dockerfile",
       "--context=/build/source-code",
       "--destination=gcr.io/deliverycenter-prod/wheel-of-misfortune:$SHORT_SHA",
       "--destination=gcr.io/deliverycenter-prod/wheel-of-misfortune:latest",
@@ -29,10 +29,10 @@ steps:
     args:
       - 'apply'
       - '-f'
-      - './5-Kubernetes/deploymental.yaml'
+      - './5-Kubernetes/deployment.yaml'
     env:
       - 'CLOUDSDK_COMPUTE_ZONE=us-east1'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-prod'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-platform'
 
   - id: 'app-set-image'
     name: 'gcr.io/cloud-builders/kubectl'
@@ -43,12 +43,12 @@ steps:
       'image',
       'deployment',
       'wheel-of-misfortune',
-      'wheel-of-misfortune=gcr.io/deliverycenter-prod/wheel-of-misfortune:$SHORT_SHA',
+      'wheel-of-misfortune=gcr.io/deliverycenter-prod/wheel-of-misfortune:latest',
       '-n',
       'production'
     ]
     env:
       - 'CLOUDSDK_COMPUTE_ZONE=us-east1'
-      - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-prod'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-platform'
 
 timeout: '2700s'
