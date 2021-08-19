@@ -1,0 +1,213 @@
+steps:
+  - id: 'app-source-code'
+    name: 'alpine'
+    waitFor: ['-']
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args: ['cp', '-T', '-r', './', '/build/source-code']
+
+  - id: app-docker-image-build
+    name: gcr.io/kaniko-project/executor
+    waitFor:
+      - 'app-source-code'
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args: [
+      "--dockerfile=.devops/dockerfiles/Dockerfile",
+      "--context=/build/source-code",
+      "--build-arg",
+      "RAILS_ENV=$_APP_ENV",
+      "--build-arg",
+      "APP_VERSION=$SHORT_SHA",
+      "--build-arg",
+      "APP_PROJECT=$PROJECT_ID",
+      "--build-arg",
+      "BUNDLE_FROZEN=true",
+      "--destination=gcr.io/$PROJECT_ID/deliverycenter-api--base:$SHORT_SHA",
+      "--destination=gcr.io/$PROJECT_ID/deliverycenter-api--base:latest",
+      "--cache=true",
+      "--cache-ttl=12h"]
+
+  - id: app-migrate-job-create
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-docker-image-build'
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args:
+    - 'apply'
+    - '-f'
+    - '.devops/kubernetes/$_APP_ENV/migration.yaml'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: app-migrate-job-status
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-migrate-job-create'
+    args:
+      - 'wait'
+      - '--for=condition=complete'
+      - '--timeout=240s'
+      - 'job/deliverycenter-api-db-migrate'
+      - '-n'
+      - '$_APP_NAMESPACE'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: app-migrate-job-delete
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-migrate-job-status'
+    args:
+      - 'delete'
+      - 'job/deliverycenter-api-db-migrate'
+      - '-n'
+      - '$_APP_NAMESPACE'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: 'app-deploy-web'
+    name: 'gcr.io/cloud-builders/gcloud'
+    waitFor:
+      - 'app-docker-image-build'
+      - 'app-migrate-job-delete'
+      - app-docker-image-build
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    dir: '/build/source-code'
+    args: [
+      'app',
+      'deploy' ,
+      '.devops/gae/$_APP_ENV/app.yaml',
+      '--image-url=gcr.io/$PROJECT_ID/deliverycenter-api--base:$SHORT_SHA',
+      '--version=v-$SHORT_SHA',
+      '$_APP_DEPLOYMENT'
+      ]
+
+  - id: 'app-apply-deployment'
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-docker-image-build'
+    args:
+      - 'apply'
+      - '-f'
+      - '.devops/kubernetes/$_APP_ENV/deployment.yaml'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: 'app-set-image'
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-apply-deployment'
+    args: [
+      'set',
+      'image',
+      'deployment',
+      'deliverycenter-api',
+      'deliverycenter-api=gcr.io/$PROJECT_ID/deliverycenter-api--base:$SHORT_SHA',
+      '-n',
+      '$_APP_NAMESPACE'
+    ]
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: worker-apply-deployment
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-docker-image-build'
+      - 'app-deploy-web'
+      - 'app-migrate-job-delete'
+    args:
+    - 'apply'
+    - '-f'
+    - '.devops/kubernetes/$_APP_ENV/worker-sidekiq.yaml'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: worker-set-image
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'worker-apply-deployment'
+      - 'app-migrate-job-delete'
+    args: [
+    'set',
+    'image',
+    'deployment',
+    'deliverycenter-api-sidekiq',
+    'deliverycenter-api-sidekiq=gcr.io/$PROJECT_ID/deliverycenter-api--base:$SHORT_SHA',
+    '-n',
+    '$_APP_NAMESPACE'
+    ]
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: worker-reports-apply-deployment
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-docker-image-build'
+      - 'app-migrate-job-delete'
+      - 'app-deploy-web'
+    args:
+    - 'apply'
+    - '-f'
+    - '.devops/kubernetes/$_APP_ENV/worker-sidekiq-reports.yaml'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: worker-reports-set-image
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'worker-reports-apply-deployment'
+      - 'app-migrate-job-delete'
+    args: [
+    'set',
+    'image',
+    'deployment',
+    'deliverycenter-api-sidekiq-reports',
+    'deliverycenter-api-sidekiq-reports=gcr.io/$PROJECT_ID/deliverycenter-api--base:$SHORT_SHA',
+    '-n',
+    '$_APP_NAMESPACE'
+    ]
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=$_APP_REGION'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=$_APP_CLUSTER'
+
+  - id: create-deployment-history-newrelic
+    name: 'gcr.io/$PROJECT_ID/dc-alpine-curl'
+    waitFor:
+      - 'app-apply-deployment'
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'APP_VERSION=$SHORT_SHA'
+      - 'APP_KEY=$_APP_KEY'
+      - 'BUILD_ID=$BUILD_ID'
+      - 'APP_ID=$_APP_ID'
+
+  # - id: 'app-deploy-cron'
+  #   name: 'gcr.io/cloud-builders/gcloud'
+  #   waitFor:
+  #     - 'app-deploy-web'
+  #   volumes:
+  #     - name: 'source-code'
+  #       path: '/build/source-code'
+  #   dir: '/build/source-code'
+  #   args: [
+  #     'app',
+  #     'deploy',
+  #     '.devops/gae/production/cron.yaml'
+  #   ]
+
+timeout: '2700s'
