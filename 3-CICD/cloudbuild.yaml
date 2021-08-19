@@ -15,4 +15,5 @@ steps:
         path: '/build/source-code'
     args: ["-m", "rsync", "-p", "-r", "-c", "/build/source-code/wheel-of-misfortune", "gs://wheel-of-misfortune.deliverycenter.com"]
 
+logsBucket: 'gs://wheel-of-misfortune-logs'
 timeout: "600s"
