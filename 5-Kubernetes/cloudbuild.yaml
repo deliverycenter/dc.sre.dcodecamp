@@ -1,0 +1,54 @@
+steps:
+  - id: 'app-source-code'
+    name: 'alpine'
+    waitFor: ['-']
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args: ['cp', '-T', '-r', './wheel-of-misfortune', '/build/source-code']
+
+  - id: app-docker-image-build
+    name: gcr.io/kaniko-project/executor
+    waitFor:
+      - 'app-source-code'
+    volumes:
+      - name: 'source-code'
+        path: '/build/source-code'
+    args: [
+      "--dockerfile=../2-Docker/Dockerfile",
+      "--context=/build/source-code",
+      "--destination=gcr.io/deliverycenter-prod/wheel-of-misfortune:$SHORT_SHA",
+      "--destination=gcr.io/deliverycenter-prod/wheel-of-misfortune:latest",
+      "--cache=true",
+      "--cache-ttl=12h"]
+
+  - id: 'app-apply-deployment'
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-docker-image-build'
+    args:
+      - 'apply'
+      - '-f'
+      - './5-Kubernetes/deploymental.yaml'
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=us-east1'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-prod'
+
+  - id: 'app-set-image'
+    name: 'gcr.io/cloud-builders/kubectl'
+    waitFor:
+      - 'app-apply-deployment'
+    args: [
+      'set',
+      'image',
+      'deployment',
+      'wheel-of-misfortune',
+      'wheel-of-misfortune=gcr.io/deliverycenter-prod/wheel-of-misfortune:$SHORT_SHA',
+      '-n',
+      'production'
+    ]
+    env:
+      - 'CLOUDSDK_COMPUTE_ZONE=us-east1'
+      - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-prod'
+
+timeout: '2700s'

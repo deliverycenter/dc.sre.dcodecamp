@@ -1,0 +1,52 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: wheel-of-misfortune
+  name: wheel-of-misfortune
+  namespace: production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wheel-of-misfortune
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: wheel-of-misfortune
+      namespace: production
+    spec:
+      containers:
+        - image: gcr.io/deliverycenter-prod/wheel-of-misfortune:latest
+          imagePullPolicy: Always
+          name: wheel-of-misfortune
+          resources: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: wheel-of-misfortune
+  name: wheel-of-misfortune
+  namespace: production
+spec:
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  # - name: https
+  #   port: 443
+  #   protocol: TCP
+  #   targetPort: 4000
+  selector:
+    app: wheel-of-misfortune
+  type: LoadBalancer
+status:
+  loadBalancer: {}
