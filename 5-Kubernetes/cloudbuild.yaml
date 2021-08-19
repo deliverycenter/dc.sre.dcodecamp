@@ -51,4 +51,5 @@ steps:
       - 'CLOUDSDK_COMPUTE_ZONE=us-east1'
       - 'CLOUDSDK_CONTAINER_CLUSTER=deliverycenter-platform'
 
+logsBucket: 'gs://wheel-of-misfortune-logs'
 timeout: '2700s'
